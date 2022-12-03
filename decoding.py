@@ -9,6 +9,12 @@ detok = MosesDetokenizer(lang="en")
 mpn = MosesPunctNormalizer()
 
 
+def get_attn_mask(L):
+    inf_mask = torch.triu(torch.ones(L, L))
+    res = torch.ones(L, L).masked_fill(inf_mask, -float('inf'))
+    return res
+
+
 def _greedy_decode(
     model: TranslationModel,
     src: torch.Tensor,
@@ -27,7 +33,36 @@ def _greedy_decode(
     :param device: device that the model runs on
     :return: a (batch, time) tensor with predictions
     """
-    pass
+    src.to(device)
+    model.to(device)
+    model.eval()
+
+    pad_id = tgt_tokenizer.convert_tokens_to_ids("[PAD]")
+    bos_id = tgt_tokenizer.convert_tokens_to_ids("[BOS]")
+    eos_id = tgt_tokenizer.convert_tokens_to_ids("[EOS]")
+    bs = src.shape[0]
+    # indices of sequences in batch, which are not fully translated yet
+    not_finished_inds = torch.ones(bs, dtype=torch.bool)
+
+    src_mask = (src == pad_id)
+
+    encoded_src = model.encode(src, src_mask)
+
+    res_tensor = torch.ones(bs, max_len) * pad_id
+    res_tensor[:,0] = bos_id * torch.ones(bs)
+    res_tensor[:,0] = eos_id * torch.ones(bs)
+
+    for i in range(1, max_len):
+        tgt_mask = get_attn_mask(i)
+        new_tokens = model.decode_last(encoded_src, encoded_src[not_finished_inds,:i], tgt_mask).argmax(dim=-1)
+        end_mask = new_tokens != eos_id
+        # update indices of not finished
+        not_finished_inds[not_finished_inds.clone()] = end_mask
+        res_tensor[not_finished_inds] = new_tokens
+        if sum(not_finished_inds) == 0:
+            break 
+    
+    return res_tensor
 
 
 def _beam_search_decode(
@@ -70,4 +105,33 @@ def translate(
     :param translation_mode: either "greedy", "beam" or anything more advanced
     :param device: device that the model runs on
     """
-    pass
+
+    # encoding and padding ====================================================
+
+    src_pad_id = src_tokenizer.convert_tokens_to_ids("[PAD]"),
+    src_tensor_list = []
+    for sentence in src_sentences:
+        src_tensor_list.append(torch.asarray(src_tokenizer.encode(sentence).ids, dtype=torch.long))
+
+
+    src_tensor = torch.nn.utils.rnn.pad_sequence(
+        sequences=src_tensor_list,
+        batch_first=True,
+        padding_value=src_pad_id
+    )
+    max_len = src_tensor.tensor.shape[1]
+
+    # running translation =====================================================
+
+    if translation_mode  == "greedy":
+        res = _greedy_decode(model, src_tensor, max_len, tgt_tokenizer, device)
+    elif translation_mode == "beam":
+        res = _beam_search_decode(model, src_tensor, max_len, tgt_tokenizer, device)
+    else:
+        raise NotImplementedError()
+    
+    # decoding translation ====================================================
+
+    decoded_res = tgt_tokenizer.decode_batch(res).text
+
+    return decoded_res

@@ -4,6 +4,12 @@ from pathlib import Path
 from tokenizers import Tokenizer
 from torch.utils.data import Dataset
 
+import torch
+from tokenizers.pre_tokenizers import Whitespace
+from tokenizers.processors import TemplateProcessing
+from tokenizers.models import BPE
+from tokenizers.trainers import BpeTrainer
+
 
 def process_training_file(input_path: Path, output_path: Path):
     """
@@ -12,7 +18,12 @@ def process_training_file(input_path: Path, output_path: Path):
     :param input_path: Path to the file with the input data (formatted examples)
     :param output_path: Path to the file with the output data (one example per line)
     """
-    pass
+    with open(input_path, "r") as input_file, open(output_path, "w") as output_file:
+        for line in input_file:
+            line = line.strip()
+            if line.startswith("<") and line.endswith(">"):
+                continue
+            output_file.write(line + "\n")
 
 
 def process_evaluation_file(input_path: Path, output_path: Path):
@@ -22,7 +33,14 @@ def process_evaluation_file(input_path: Path, output_path: Path):
     :param input_path: Path to the file with the input data (formatted examples)
     :param output_path: Path to the file with the output data (one example per line)
     """
-    pass
+    with open(input_path, "r") as input_file, open(output_path, "w") as output_file:
+        for line in input_file:
+            line = line.strip()
+            if line.startswith("<seg id="):
+                start  = line.find(">")
+                finish = line.rfind("<")
+                output_file.write(line[start+1:finish].strip() + "\n")
+
 
 
 def convert_files(base_path: Path, output_path: Path):
@@ -66,21 +84,77 @@ class TranslationDataset(Dataset):
         :param max_len: Maximum length of source and target sentences for each example:
         if either of the parts contains more tokens, it needs to be filtered.
         """
-        # your code here
-        pass
+        self.src_file_path = src_file_path
+        self.tgt_file_path = tgt_file_path
+        self.src_tokenizer = src_tokenizer
+        self.tgt_tokenizer = tgt_tokenizer
+
+        self.src_tokenizer.enable_truncation(max_length=max_len)
+        self.tgt_tokenizer.enable_truncation(max_length=max_len)
+        
+        self.src_lines = []
+        self.src_ids = []
+        with open(src_file_path, "r") as src_file:
+            for line in src_file:
+                self.src_lines.append(line.strip())
+                self.src_ids.append(torch.asarray(self.src_tokenizer.encode(line).ids, dtype=torch.long))
+
+        self.tgt_lines = []
+        self.tgt_ids = []
+        with open(tgt_file_path, "r") as tgt_file:
+            for line in tgt_file:
+                self.tgt_lines.append(line.strip())
+                self.tgt_ids.append(torch.asarray(self.tgt_tokenizer.encode(line).ids, dtype=torch.long))
+
+        # self.src_tokenizer.disable_truncation()
+        # self.tgt_tokenizer.disable_truncation()
+
+        
 
     def __len__(self):
-        pass
+        return len(self.src_lines)
 
     def __getitem__(self, i):
-        pass
+        res = {
+            "src_text" : self.src_lines[i],
+            "src_ids"  : self.src_ids[i], 
+            "tgt_text" : self.tgt_lines[i],
+            "tgt_ids"  : self.tgt_ids[i], 
+        }
+        return res
 
     def collate_translation_data(self, batch):
         """
         Given a batch of examples with varying length, collate it into `source` and `target` tensors for the model.
         This method is meant to be used when instantiating the DataLoader class for training and validation datasets in your pipeline.
         """
-        pass
+
+        pad_tokens = {
+            "src" : self.src_tokenizer.convert_tokens_to_ids("[PAD]"),
+            "tgt" : self.tgt_tokenizer.convert_tokens_to_ids("[PAD]"),
+        }
+
+        # for lang in ['src', 'target']:
+        #     ids_list = batch[f"{lang}_ids"]
+        #     batch_max_len = max([len(ids) for ids in ids_list])
+        #     # initially ids_tensor is filled with "PAD"
+        #     ids_tensor = torch.ones(len(ids_list), batch_max_len) * pad_tokens[lang]
+
+        #     for i in range(len(ids_list)):
+        #         ids = ids_list[i]
+        #         ids_tensor[:len(ids)] = torch.asarray(ids, dtype=torch.long)
+        #     batch[f"{lang}_ids"] = ids_tensor
+
+        for lang in ['src', 'target']:
+            batch[f"{lang}_ids"] = torch.nn.utils.rnn.pad_sequence(
+                sequences=batch[f"{lang}_ids"],
+                batch_first=True,
+                padding_value=pad_tokens[lang]
+            )
+
+        return batch
+        
+    
 
 
 class SpecialTokens(Enum):
@@ -96,4 +170,18 @@ def train_tokenizers(base_dir: Path, save_dir: Path):
     :param base_dir: Directory containing processed training and validation data (.txt files from `convert_files`)
     :param save_dir: Directory for storing trained tokenizer data (two files: `tokenizer_de.json` and `tokenizer_en.json`)
     """
-    pass
+
+    for language in ["de", "en"]:
+        tokenizer = Tokenizer(BPE(unk_token="[UNK]"))
+        src_files = [str(base_dir / f"train.{language}.txt"), str(base_dir / f"val.{language}.txt")]
+        trainer = BpeTrainer(special_tokens=["[UNK]", "[PAD]", "[BOS]", "[EOS]"], vocab_size=30000)
+        tokenizer.pre_tokenizer = Whitespace()
+        tokenizer.post_processor = TemplateProcessing(
+            single="[BOS] $A [EOS]",
+            special_tokens=[
+                ("[BOS]", 2),
+                ("[EOS]", 3),
+            ],
+        )
+        tokenizer.train(src_files, trainer)
+        tokenizer.save(str(save_dir / f"tokenizer_{language}.json"))

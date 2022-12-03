@@ -15,12 +15,33 @@ def train_epoch(
     model: TranslationModel,
     train_dataloader,
     optimizer,
+    scheduler,
+    CELoss,
     device,
 ):
     # train the model for one epoch
     # you can obviously add new arguments or change the API if it does not suit you
     model.train()
-    pass
+    model.to(device)
+
+    total_loss = 0
+    total_size = 0
+
+    for batch in train_dataloader():
+        batch.to(device) # TODO: fix
+        bs = 0 # TODO: fix
+        out = model(batch) # TODO: fix
+        loss = CELoss(batch["target"], out) # TODO: fix
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        scheduler.step()
+        total_loss += loss.cpu().item() * bs
+        total_size += bs
+
+    return total_loss / total_size
+
+
 
 
 @torch.inference_mode()
@@ -31,6 +52,18 @@ def evaluate(model: TranslationModel, val_dataloader, device):
 
 
 def train_model(data_dir, tokenizer_path, num_epochs):
+    config = {
+        "batch_size" : 32,
+        "lr" : 3e-4,
+        "max_len" : 128,  # might be enough at first
+        "num_encoder_layers" : 3,
+        "num_decoder_layers" : 3,
+        "emb_size" : 256,
+        "dim_feedforward" : 256,
+        "n_head" : 8,
+        "dropout_prob" : 0.1,
+    }
+
     src_tokenizer = Tokenizer.from_file(str(tokenizer_path / "tokenizer_de.json"))
     tgt_tokenizer = Tokenizer.from_file(str(tokenizer_path / "tokenizer_en.json"))
 
@@ -39,46 +72,79 @@ def train_model(data_dir, tokenizer_path, num_epochs):
         data_dir / "train.en.txt",
         src_tokenizer,
         tgt_tokenizer,
-        max_len=128,  # might be enough at first
+        max_len=config["max_len"],
     )
     val_dataset = TranslationDataset(
         data_dir / "val.de.txt",
         data_dir / "val.en.txt",
         src_tokenizer,
         tgt_tokenizer,
-        max_len=128,
+        max_len=config["max_len"],
     )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     torch.manual_seed(0)
 
+    src_pad_id = tgt_tokenizer.convert_tokens_to_ids("[PAD]")
+    tgt_pad_id = tgt_tokenizer.convert_tokens_to_ids("[PAD]")
+
     model = TranslationModel(
-        # your code here
+        config["num_encoder_layers"],
+        config["num_decoder_layers"],
+        config["emb_size"],
+        config["dim_feedforward"],
+        config["n_head"],
+        src_tokenizer.get_vocab_size(),
+        tgt_tokenizer.get_vocab_size,
+        config["dropout_prob"],
+        src_pad_id,
+        tgt_pad_id,
+        config["max_len"]
+    )
+    print("Total no. of model parameters:",
+        pytorch_total_params = sum(p.numel() for p in model.parameters())
     )
     model.to(device)
 
-    # create loss, optimizer, scheduler objects, dataloaders etc.
-    # don't forget about collate_fn
-    # if you intend to use AMP, you might need something else
+    train_dataloader = torch.utils.data.DataLoader(
+        train_dataset,
+        config["batch_size"],
+        collate_fn = train_dataset.collate_translation_data,
+        shuffle=True,
+    )
+    val_dataloader = torch.utils.data.DataLoader(
+        val_dataset,
+        config["batch_size"],
+        collate_fn = val_dataset.collate_translation_data,
+    )
+
+    # standard for transformers Adam optimizer + OneCycle scheduler
+    optimizer = torch.optim.Adam(model.parameters(), config["lr"])
+    scheduler = torch.optim.lr_scheduler.OneCycleLR(
+        optimizer,
+        config["lr"],
+        steps_per_epoch=len(train_dataloader),
+        epochs=num_epochs,
+        pct_start=0.1
+    )
+    CELoss = torch.nn.CrossEntropyLoss(ignore_idx=tgt_pad_id)
 
     min_val_loss = float("inf")
 
     for epoch in trange(1, num_epochs + 1):
-
-        train_loss = train_epoch()
-        val_loss = evaluate()
+        train_loss = train_epoch(model, train_dataloader, CELoss, optimizer, scheduler, device)
+        val_loss = evaluate(model, val_dataloader, CELoss, device)
 
         # might be useful to translate some sentences from validation to check your decoding implementation
 
         # also, save the best checkpoint somewhere around here
         if val_loss < min_val_loss:
             print("New best loss! Saving checkpoint")
-            torch.save(model.state_dict(), "checkpoint_best.pth")
+            torch.save({
+                    'model_state_dict' : model.state_dict(),
+                    'optimizer' : opt
+                }, "checkpoint_best.pth")
             min_val_loss = val_loss
-
-        # and the last one in case you need to recover
-        # by the way, is this sufficient?
-        torch.save(model.state_dict(), "checkpoint_last.pth")
 
     # load the best checkpoint
     model.load_state_dict(torch.load("checkpoint_best.pth"))

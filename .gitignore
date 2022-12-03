@@ -1,0 +1,9 @@
+__pycache__
+
+# ignore texts
+*.txt
+texts/*
+clean_texts/*
+*.zip
+# ignore tokenizer
+*.json
