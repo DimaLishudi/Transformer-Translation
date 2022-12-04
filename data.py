@@ -115,13 +115,14 @@ class TranslationDataset(Dataset):
         return len(self.src_lines)
 
     def __getitem__(self, i):
-        res = {
-            "src_text" : self.src_lines[i],
-            "src_ids"  : self.src_ids[i], 
-            "tgt_text" : self.tgt_lines[i],
-            "tgt_ids"  : self.tgt_ids[i], 
-        }
-        return res
+        # enable texts for debug/extra logging (but slower dataloading)
+        # res = {
+        #     # "src_text" : self.src_lines[i],
+        #     "src_ids"  : self.src_ids[i], 
+        #     # "tgt_text" : self.tgt_lines[i],
+        #     "tgt_ids"  : self.tgt_ids[i], 
+        # }
+        return self.src_ids[i], self.tgt_ids[i]
 
     def collate_translation_data(self, batch):
         """
@@ -130,10 +131,28 @@ class TranslationDataset(Dataset):
         """
 
         pad_tokens = {
-            "src" : self.src_tokenizer.convert_tokens_to_ids("[PAD]"),
-            "tgt" : self.tgt_tokenizer.convert_tokens_to_ids("[PAD]"),
+            "src" : self.src_tokenizer.token_to_id("[PAD]"),
+            "tgt" : self.tgt_tokenizer.token_to_id("[PAD]"),
         }
 
+        ids_lists = {
+            "src" : [],
+            "tgt" : [],
+        }
+
+        for src, tgt in batch:
+            ids_lists["src"].append(src)
+            ids_lists["tgt"].append(tgt)
+
+        batch = {}
+
+        for lang in ['src', 'tgt']:
+            batch[lang] = torch.nn.utils.rnn.pad_sequence(
+                sequences=ids_lists[lang],
+                batch_first=True,
+                padding_value=pad_tokens[lang]
+            )
+    
         # for lang in ['src', 'target']:
         #     ids_list = batch[f"{lang}_ids"]
         #     batch_max_len = max([len(ids) for ids in ids_list])
@@ -145,17 +164,8 @@ class TranslationDataset(Dataset):
         #         ids_tensor[:len(ids)] = torch.asarray(ids, dtype=torch.long)
         #     batch[f"{lang}_ids"] = ids_tensor
 
-        for lang in ['src', 'target']:
-            batch[f"{lang}_ids"] = torch.nn.utils.rnn.pad_sequence(
-                sequences=batch[f"{lang}_ids"],
-                batch_first=True,
-                padding_value=pad_tokens[lang]
-            )
-
         return batch
         
-    
-
 
 class SpecialTokens(Enum):
     UNKNOWN = "[UNK]"

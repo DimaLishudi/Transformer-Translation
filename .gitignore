@@ -7,3 +7,4 @@ clean_texts/*
 *.zip
 # ignore tokenizer
 *.json
+wandb/

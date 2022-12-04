@@ -37,9 +37,9 @@ def _greedy_decode(
     model.to(device)
     model.eval()
 
-    pad_id = tgt_tokenizer.convert_tokens_to_ids("[PAD]")
-    bos_id = tgt_tokenizer.convert_tokens_to_ids("[BOS]")
-    eos_id = tgt_tokenizer.convert_tokens_to_ids("[EOS]")
+    pad_id = tgt_tokenizer.token_to_id("[PAD]")
+    bos_id = tgt_tokenizer.token_to_id("[BOS]")
+    eos_id = tgt_tokenizer.token_to_id("[EOS]")
     bs = src.shape[0]
     # indices of sequences in batch, which are not fully translated yet
     not_finished_inds = torch.ones(bs, dtype=torch.bool)
@@ -108,7 +108,7 @@ def translate(
 
     # encoding and padding ====================================================
 
-    src_pad_id = src_tokenizer.convert_tokens_to_ids("[PAD]"),
+    src_pad_id = src_tokenizer.token_to_id("[PAD]"),
     src_tensor_list = []
     for sentence in src_sentences:
         src_tensor_list.append(torch.asarray(src_tokenizer.encode(sentence).ids, dtype=torch.long))
