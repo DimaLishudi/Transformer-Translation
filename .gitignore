@@ -8,3 +8,4 @@ clean_texts/*
 # ignore tokenizer
 *.json
 wandb/
+*.pth

@@ -49,6 +49,7 @@ def train_epoch(
 
         # forward, give target except ["EOS"]
         out = model(tgt[:,:-1], src, tgt_attn_mask, src_pad_mask, tgt_pad_mask)
+
         # compare to target except ["BOS"]
         out = out.reshape(bs * (tgt_len-1), tgt_vocab_size)
         loss = CELoss(out, tgt[:,1:].reshape(-1))
@@ -122,13 +123,13 @@ def evaluate(
 
 def train_model(data_dir, tokenizer_path, num_epochs, enable_wandb):
     config = {
-        "batch_size" : 16,
+        "batch_size" : 6,
         "lr" : 3e-4,
         "max_len" : 128,  # might be enough at first
-        "num_encoder_layers" : 1,
-        "num_decoder_layers" : 1,
+        "num_encoder_layers" : 2,
+        "num_decoder_layers" : 2,
         "emb_size" : 256,
-        "dim_feedforward" : 1024,
+        "dim_feedforward" : 512,
         "n_head" : 8,
         "dropout_prob" : 0.1,
     }

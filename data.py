@@ -73,6 +73,7 @@ class TranslationDataset(Dataset):
         src_tokenizer: Tokenizer,
         tgt_tokenizer: Tokenizer,
         max_len=32,
+        hold_texts=False,
     ):
         """
         Loads the training dataset and parses it into separate tokenized training examples.
@@ -88,6 +89,8 @@ class TranslationDataset(Dataset):
         self.tgt_file_path = tgt_file_path
         self.src_tokenizer = src_tokenizer
         self.tgt_tokenizer = tgt_tokenizer
+        # enable texts for debug/extra logging (but slower dataloading)
+        self.hold_texts = hold_texts
 
         self.src_tokenizer.enable_truncation(max_length=max_len)
         self.tgt_tokenizer.enable_truncation(max_length=max_len)
@@ -96,14 +99,16 @@ class TranslationDataset(Dataset):
         self.src_ids = []
         with open(src_file_path, "r") as src_file:
             for line in src_file:
-                self.src_lines.append(line.strip())
+                if self.hold_texts:
+                    self.src_lines.append(line.strip())
                 self.src_ids.append(torch.asarray(self.src_tokenizer.encode(line).ids, dtype=torch.long))
 
         self.tgt_lines = []
         self.tgt_ids = []
         with open(tgt_file_path, "r") as tgt_file:
             for line in tgt_file:
-                self.tgt_lines.append(line.strip())
+                if self.hold_texts:
+                    self.tgt_lines.append(line.strip())
                 self.tgt_ids.append(torch.asarray(self.tgt_tokenizer.encode(line).ids, dtype=torch.long))
 
         # self.src_tokenizer.disable_truncation()
@@ -115,13 +120,8 @@ class TranslationDataset(Dataset):
         return len(self.src_lines)
 
     def __getitem__(self, i):
-        # enable texts for debug/extra logging (but slower dataloading)
-        # res = {
-        #     # "src_text" : self.src_lines[i],
-        #     "src_ids"  : self.src_ids[i], 
-        #     # "tgt_text" : self.tgt_lines[i],
-        #     "tgt_ids"  : self.tgt_ids[i], 
-        # }
+        if self.hold_texts:
+            return self.src_ids[i], self.tgt_ids[i], self.src_lines[i], self.tgt_lines[i]
         return self.src_ids[i], self.tgt_ids[i]
 
     def collate_translation_data(self, batch):
@@ -139,10 +139,15 @@ class TranslationDataset(Dataset):
             "src" : [],
             "tgt" : [],
         }
+        src_texts = []
+        tgt_texts = []
 
-        for src, tgt in batch:
-            ids_lists["src"].append(src)
-            ids_lists["tgt"].append(tgt)
+        for src_ids, tgt_ids, src_text, tgt_text in batch:
+            ids_lists["src"].append(src_ids)
+            ids_lists["tgt"].append(tgt_ids)
+            if self.hold_texts:
+                src_texts.append(src_text)
+                tgt_texts.append(tgt_text)
 
         batch = {}
 
@@ -152,6 +157,10 @@ class TranslationDataset(Dataset):
                 batch_first=True,
                 padding_value=pad_tokens[lang]
             )
+
+        if self.hold_texts:
+            batch["src_text"] = src_texts
+            batch["tgt_text"] = tgt_texts
     
         # for lang in ['src', 'target']:
         #     ids_list = batch[f"{lang}_ids"]
