@@ -73,8 +73,6 @@ def train_epoch(
     return total_loss / total_size
 
 
-
-
 @torch.inference_mode()
 def evaluate(
     model: TranslationModel,
@@ -96,7 +94,7 @@ def evaluate(
     total_loss = 0
     total_size = 0
 
-    for batch in tqdm(val_dataloader):
+    for i, batch in enumerate(val_dataloader):
         #getting data 
         src = batch["src"].to(device)
         tgt = batch["tgt"].to(device)
@@ -106,10 +104,13 @@ def evaluate(
         tgt_attn_mask = get_attn_mask(tgt_len-1).to(device)
         src_pad_mask = (src == src_pad_id).to(device)
         tgt_pad_mask = (tgt[:,:-1] == tgt_pad_id).to(device)
-        # print(tgt.shape, src.shape, tgt_attn_mask.shape, src_pad_mask.shape, tgt_pad_mask.shape)
 
         # forward, give target except ["EOS"]
         out = model(tgt[:,:-1], src, tgt_attn_mask, src_pad_mask, tgt_pad_mask)
+    
+        # if i == 0:
+        #     print(tgt_tokenizer.decode(out[0].argmax(dim=-1).tolist()))
+
         # compare to target except ["BOS"]
         out = out.reshape(bs * (tgt_len-1), tgt_vocab_size)
         loss = CELoss(out, tgt[:,1:].reshape(-1))
@@ -155,7 +156,7 @@ def train_model(data_dir, tokenizer_path, num_epochs, enable_wandb):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     torch.manual_seed(0)
 
-    src_pad_id = tgt_tokenizer.token_to_id("[PAD]")
+    src_pad_id = src_tokenizer.token_to_id("[PAD]")
     tgt_pad_id = tgt_tokenizer.token_to_id("[PAD]")
 
     model = TranslationModel(
@@ -195,7 +196,6 @@ def train_model(data_dir, tokenizer_path, num_epochs, enable_wandb):
         config["batch_size"],
         collate_fn = val_dataset.collate_translation_data,
     )
-    print(len(val_dataloader))
 
     # standard for transformers Adam optimizer + OneCycle scheduler
     optimizer = torch.optim.Adam(model.parameters(), config["lr"])
@@ -225,16 +225,16 @@ def train_model(data_dir, tokenizer_path, num_epochs, enable_wandb):
         if val_loss < min_val_loss:
             print("New best loss! Saving checkpoint")
             torch.save({
-                    'model_state_dict' : model.state_dict(),
-                    'optimizer' : optimizer,
-                    'scheduler' : scheduler
+                    "model_state_dict" : model.state_dict(),
+                    "optimizer" : optimizer,
+                    "scheduler" : scheduler
                 }, "checkpoint_best.pth")
             min_val_loss = val_loss
 
         torch.save({
-                'model_state_dict' : model.state_dict(),
-                'optimizer' : optimizer,
-                'scheduler' : scheduler
+                "model_state_dict" : model.state_dict(),
+                "optimizer" : optimizer,
+                "scheduler" : scheduler
             }, "checkpoint_last.pth")
 
     # load the best checkpoint
@@ -244,13 +244,21 @@ def train_model(data_dir, tokenizer_path, num_epochs, enable_wandb):
 
 def translate_test_set(model: TranslationModel, data_dir, tokenizer_path):
     model.eval()
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    src_tokenizer = Tokenizer.from_file(str(tokenizer_path / "tokenizer_de.json"))
+    tgt_tokenizer = Tokenizer.from_file(str(tokenizer_path / "tokenizer_en.json"))
 
     greedy_translations = []
     with open(data_dir / "test.de.txt") as input_file, open(
         "answers_greedy.txt", "w+"
     ) as output_file:
-        # translate with greedy search
-        pass
+        for line in input_file:
+            src_sentences = [line] # [next(input_file) for _ in range(batch_size)]
+            # translate with greedy search
+            greed_out = translate(model, src_sentences, src_tokenizer, tgt_tokenizer, "greedy", device)
+            for line in greed_out:
+                output_file.write(line)
 
     beam_translations = []
     with open(data_dir / "test.de.txt") as input_file, open(
@@ -265,7 +273,7 @@ def translate_test_set(model: TranslationModel, data_dir, tokenizer_path):
     bleu = BLEU()
     bleu_greedy = bleu.corpus_score(greedy_translations, [references]).score
 
-    # we're recreating the object, as it might cache some stats
+    # we"re recreating the object, as it might cache some stats
     bleu = BLEU()
     bleu_beam = bleu.corpus_score(beam_translations, [references]).score
 

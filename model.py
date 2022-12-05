@@ -115,12 +115,10 @@ class TranslationModel(nn.Module):
         encoded_src: Tensor,
         tgt_tokens: Tensor,
         tgt_mask: Tensor = None,
-        tgt_padding_mask: Tensor = None,
     ):
         decoded = self.transformer.decoder(
             tgt=self.pe(self.tgt_embed(tgt_tokens)),
             memory=encoded_src,
             tgt_mask=tgt_mask,
-            tgt_key_padding_mask=tgt_padding_mask
         )
         return self.linear(decoded[:,-1])

@@ -125,7 +125,7 @@ class TranslationDataset(Dataset):
     def __getitem__(self, i):
         if self.hold_texts:
             return self.src_ids[i], self.tgt_ids[i], self.src_lines[i], self.tgt_lines[i]
-        return self.src_ids[i], self.tgt_ids[i]
+        return self.src_ids[i], self.tgt_ids[i], None, None
 
     def collate_translation_data(self, batch):
         """

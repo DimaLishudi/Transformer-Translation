@@ -4,21 +4,21 @@ from tokenizers import Tokenizer
 
 from model import TranslationModel
 
-# it's a surprise tool that will help you later
+# it"s a surprise tool that will help you later
 detok = MosesDetokenizer(lang="en")
 mpn = MosesPunctNormalizer()
 
 
 def get_attn_mask(L):
-    inf_mask = torch.triu(torch.ones(L, L))
-    res = torch.ones(L, L).masked_fill(inf_mask, -float('inf'))
+    inf_mask = torch.triu(torch.ones(L, L, dtype=bool), diagonal=1)
+    res = torch.zeros(L, L).masked_fill(inf_mask, -float("inf"))
     return res
-
 
 def _greedy_decode(
     model: TranslationModel,
     src: torch.Tensor,
     max_len: int,
+    src_tokenizer: Tokenizer,
     tgt_tokenizer: Tokenizer,
     device: torch.device,
 ) -> torch.Tensor:
@@ -37,6 +37,7 @@ def _greedy_decode(
     model.to(device)
     model.eval()
 
+    src_pad_id = src_tokenizer.token_to_id("[PAD]")
     pad_id = tgt_tokenizer.token_to_id("[PAD]")
     bos_id = tgt_tokenizer.token_to_id("[BOS]")
     eos_id = tgt_tokenizer.token_to_id("[EOS]")
@@ -44,22 +45,27 @@ def _greedy_decode(
     # indices of sequences in batch, which are not fully translated yet
     not_finished_inds = torch.ones(bs, dtype=torch.bool)
 
-    src_mask = (src == pad_id)
+    src_mask = (src == src_pad_id)
 
     encoded_src = model.encode(src, src_mask)
 
-    res_tensor = torch.ones(bs, max_len) * pad_id
+    res_tensor = torch.ones(bs, max_len, dtype=torch.long) * pad_id
     res_tensor[:,0] = bos_id * torch.ones(bs)
-    res_tensor[:,0] = eos_id * torch.ones(bs)
+    res_tensor[:,-1] = eos_id * torch.ones(bs)
+
+    res_tensor = res_tensor.to(device)
 
     for i in range(1, max_len):
-        tgt_mask = get_attn_mask(i)
-        new_tokens = model.decode_last(encoded_src, encoded_src[not_finished_inds,:i], tgt_mask).argmax(dim=-1)
-        end_mask = new_tokens != eos_id
+        tgt_mask = get_attn_mask(i).to(device)
+        new_tokens = model.decode_last(encoded_src, res_tensor[not_finished_inds,:i], tgt_mask).argmax(dim=-1)
+
         # update indices of not finished
-        not_finished_inds[not_finished_inds.clone()] = end_mask
-        res_tensor[not_finished_inds] = new_tokens
-        if sum(not_finished_inds) == 0:
+
+        end_mask = new_tokens != eos_id
+        res_tensor[not_finished_inds,i] = new_tokens[not_finished_inds]
+        not_finished_inds[not_finished_inds.clone()] = end_mask.cpu()
+
+        if sum(not_finished_inds).item() == 0:
             break 
     
     return res_tensor
@@ -108,23 +114,23 @@ def translate(
 
     # encoding and padding ====================================================
 
-    src_pad_id = src_tokenizer.token_to_id("[PAD]"),
+    src_pad_id = src_tokenizer.token_to_id("[PAD]")
     src_tensor_list = []
     for sentence in src_sentences:
-        src_tensor_list.append(torch.asarray(src_tokenizer.encode(sentence).ids, dtype=torch.long))
-
+        src_tensor_list.append(torch.asarray(src_tokenizer.encode(sentence).ids))
 
     src_tensor = torch.nn.utils.rnn.pad_sequence(
         sequences=src_tensor_list,
         batch_first=True,
         padding_value=src_pad_id
-    )
-    max_len = src_tensor.tensor.shape[1]
+    ).long().to(device)
+
+    max_len = src_tensor.shape[1] + 15
 
     # running translation =====================================================
 
     if translation_mode  == "greedy":
-        res = _greedy_decode(model, src_tensor, max_len, tgt_tokenizer, device)
+        res = _greedy_decode(model, src_tensor, max_len, src_tokenizer, tgt_tokenizer, device)
     elif translation_mode == "beam":
         res = _beam_search_decode(model, src_tensor, max_len, tgt_tokenizer, device)
     else:
@@ -132,6 +138,10 @@ def translate(
     
     # decoding translation ====================================================
 
-    decoded_res = tgt_tokenizer.decode_batch(res).text
+    decoded_res = tgt_tokenizer.decode_batch(res.tolist())
 
-    return decoded_res
+    normalized_res = []
+    for line in decoded_res:
+        normalized_res.append(detok.detokenize(line.split()) + '\n')
+
+    return normalized_res
