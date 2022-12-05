@@ -95,15 +95,18 @@ class TranslationDataset(Dataset):
         self.src_tokenizer.enable_truncation(max_length=max_len)
         self.tgt_tokenizer.enable_truncation(max_length=max_len)
         
-        self.src_lines = []
+        if self.hold_texts:
+            self.src_lines = []
+            self.tgt_lines = []
+
         self.src_ids = []
+
         with open(src_file_path, "r") as src_file:
             for line in src_file:
                 if self.hold_texts:
                     self.src_lines.append(line.strip())
                 self.src_ids.append(torch.asarray(self.src_tokenizer.encode(line).ids, dtype=torch.long))
 
-        self.tgt_lines = []
         self.tgt_ids = []
         with open(tgt_file_path, "r") as tgt_file:
             for line in tgt_file:
@@ -117,7 +120,7 @@ class TranslationDataset(Dataset):
         
 
     def __len__(self):
-        return len(self.src_lines)
+        return len(self.src_ids)
 
     def __getitem__(self, i):
         if self.hold_texts:
@@ -151,7 +154,7 @@ class TranslationDataset(Dataset):
 
         batch = {}
 
-        for lang in ['src', 'tgt']:
+        for lang in ["src", "tgt"]:
             batch[lang] = torch.nn.utils.rnn.pad_sequence(
                 sequences=ids_lists[lang],
                 batch_first=True,
@@ -162,7 +165,7 @@ class TranslationDataset(Dataset):
             batch["src_text"] = src_texts
             batch["tgt_text"] = tgt_texts
     
-        # for lang in ['src', 'target']:
+        # for lang in ["src", "target"]:
         #     ids_list = batch[f"{lang}_ids"]
         #     batch_max_len = max([len(ids) for ids in ids_list])
         #     # initially ids_tensor is filled with "PAD"
