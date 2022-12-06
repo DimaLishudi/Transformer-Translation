@@ -9,3 +9,4 @@ clean_texts/*
 *.json
 wandb/
 *.pth
+test.py

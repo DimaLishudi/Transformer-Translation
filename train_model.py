@@ -136,13 +136,13 @@ def evaluate(
 
 def train_model(data_dir, tokenizer_path, num_epochs, enable_wandb):
     config = {
-        "batch_size" : 32,
-        "lr" : 3e-4,
+        "batch_size" : 16,
+        "lr" : 1e-3,
         "max_len" : 128,  # might be enough at first
-        "num_encoder_layers" : 3, # 2?
-        "num_decoder_layers" : 3, # 2?
+        "num_encoder_layers" : 5,
+        "num_decoder_layers" : 5,
         "emb_size" : 256,
-        "dim_feedforward" : 512,
+        "dim_feedforward" : 1024,
         "n_head" : 8,
         "dropout_prob" : 0.1,
     }
@@ -224,7 +224,7 @@ def train_model(data_dir, tokenizer_path, num_epochs, enable_wandb):
 
     for epoch in trange(1, num_epochs + 1):
         train_loss = train_epoch(model, train_dataloader, CELoss, optimizer, scheduler, device, src_tokenizer, tgt_tokenizer, logger)
-        
+
         # save last checkpoint
         torch.save({
                 "model_state_dict" : model.state_dict(),
@@ -251,7 +251,7 @@ def train_model(data_dir, tokenizer_path, num_epochs, enable_wandb):
             min_val_loss = val_loss
 
     # load the best checkpoint
-    model.load_state_dict(torch.load("checkpoint_best.pth"))
+    model.load_state_dict(torch.load("checkpoint_best.pth")["model_state_dict"])
     return model
 
 
@@ -287,10 +287,10 @@ def translate_test_set(model: TranslationModel, data_dir, tokenizer_path):
     bleu = BLEU()
     bleu_greedy = bleu.corpus_score(greedy_translations, [references]).score
 
+    bleu_beam = 0
     # we"re recreating the object, as it might cache some stats
-    bleu = BLEU()
-    bleu_beam = bleu.corpus_score(beam_translations, [references]).score
-
+    # bleu = BLEU()
+    # bleu_beam = bleu.corpus_score(beam_translations, [references]).score
     print(f"BLEU with greedy search: {bleu_greedy}, with beam search: {bleu_beam}")
     # maybe log to wandb/comet/neptune as well
 
