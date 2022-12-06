@@ -136,13 +136,13 @@ def evaluate(
 
 def train_model(data_dir, tokenizer_path, num_epochs, enable_wandb):
     config = {
-        "batch_size" : 16,
+        "batch_size" : 32,
         "lr" : 1e-3,
         "max_len" : 128,  # might be enough at first
-        "num_encoder_layers" : 5,
-        "num_decoder_layers" : 5,
+        "num_encoder_layers" : 3,
+        "num_decoder_layers" : 3,
         "emb_size" : 256,
-        "dim_feedforward" : 1024,
+        "dim_feedforward" : 512,
         "n_head" : 8,
         "dropout_prob" : 0.1,
     }
