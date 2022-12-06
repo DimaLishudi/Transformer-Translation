@@ -1,4 +1,4 @@
-from argparse import ArgumentParser, BooleanOptionalAction
+from argparse import ArgumentParser
 from pathlib import Path
 
 import torch
@@ -136,11 +136,11 @@ def evaluate(
 
 def train_model(data_dir, tokenizer_path, num_epochs, enable_wandb):
     config = {
-        "batch_size" : 6,
+        "batch_size" : 32,
         "lr" : 3e-4,
         "max_len" : 128,  # might be enough at first
-        "num_encoder_layers" : 2,
-        "num_decoder_layers" : 2,
+        "num_encoder_layers" : 2, # 3?
+        "num_decoder_layers" : 2, # 3?
         "emb_size" : 256,
         "dim_feedforward" : 512,
         "n_head" : 8,
@@ -312,7 +312,7 @@ if __name__ == "__main__":
     )
     log_group = parser.add_argument_group("Logging")
     log_group.add_argument(
-        "--enable-wandb", type=bool, default=False, help="log to wandb", action=BooleanOptionalAction
+        "--enable-wandb", type=bool, default=False, help="log to wandb", action='store_true'
     )
 
     args = parser.parse_args()
