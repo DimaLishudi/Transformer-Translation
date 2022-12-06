@@ -1,4 +1,4 @@
-from argparse import ArgumentParser
+from argparse import ArgumentParser, BooleanOptionalAction
 from pathlib import Path
 
 import torch
@@ -312,7 +312,7 @@ if __name__ == "__main__":
     )
     log_group = parser.add_argument_group("Logging")
     log_group.add_argument(
-        "--enable-wandb", type=bool, default=False, help="log to wandb", action='store_true'
+        "--enable-wandb", type=bool, default=False, help="log to wandb", action=BooleanOptionalAction
     )
 
     args = parser.parse_args()
