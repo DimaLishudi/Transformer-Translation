@@ -64,7 +64,6 @@ def _greedy_decode(
         end_mask = new_tokens != eos_id
         res_tensor[not_finished_inds,i] = new_tokens[not_finished_inds]
         not_finished_inds[not_finished_inds.clone()] = end_mask.cpu()
-        not_finished_inds = torch.ones(bs, dtype=torch.bool)
 
         if sum(not_finished_inds).item() == 0:
             break 
