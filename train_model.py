@@ -224,6 +224,14 @@ def train_model(data_dir, tokenizer_path, num_epochs, enable_wandb):
 
     for epoch in trange(1, num_epochs + 1):
         train_loss = train_epoch(model, train_dataloader, CELoss, optimizer, scheduler, device, src_tokenizer, tgt_tokenizer, logger)
+        
+        # save last checkpoint
+        torch.save({
+                "model_state_dict" : model.state_dict(),
+                "optimizer" : optimizer,
+                "scheduler" : scheduler
+            }, "checkpoint_last.pth")
+
         val_loss, table = evaluate(model, val_dataloader, CELoss, device, src_tokenizer, tgt_tokenizer, logger)
         if logger is not None:
             logger.log({
@@ -231,13 +239,6 @@ def train_model(data_dir, tokenizer_path, num_epochs, enable_wandb):
                 "val_loss" : val_loss,
                 "first batch translation" : table
             })
-
-        # save last checkpoint
-        torch.save({
-                "model_state_dict" : model.state_dict(),
-                "optimizer" : optimizer,
-                "scheduler" : scheduler
-            }, "checkpoint_last.pth")
 
         # also, save the best checkpoint somewhere around here
         if val_loss < min_val_loss:

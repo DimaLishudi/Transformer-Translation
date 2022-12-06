@@ -62,7 +62,7 @@ def _greedy_decode(
         # update indices of not finished
 
         end_mask = new_tokens != eos_id
-        res_tensor[not_finished_inds,i] = new_tokens[not_finished_inds]
+        res_tensor[not_finished_inds,i] = new_tokens
         not_finished_inds[not_finished_inds.clone()] = end_mask.cpu()
 
         if sum(not_finished_inds).item() == 0:
