@@ -142,6 +142,6 @@ def translate(
 
     normalized_res = []
     for line in decoded_res:
-        normalized_res.append(detok.detokenize(line.split()) + '\n')
+        normalized_res.append(detok.detokenize(line.split()))
 
     return normalized_res

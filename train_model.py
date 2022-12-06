@@ -7,7 +7,7 @@ from tokenizers import Tokenizer
 from tqdm.auto import trange, tqdm
 
 from data import TranslationDataset
-from decoding import translate, get_attn_mask
+from decoding import translate, get_attn_mask, _greedy_decode
 from model import TranslationModel
 
 import wandb
@@ -94,6 +94,8 @@ def evaluate(
     total_loss = 0
     total_size = 0
 
+    table = None
+
     for i, batch in enumerate(val_dataloader):
         #getting data 
         src = batch["src"].to(device)
@@ -108,8 +110,18 @@ def evaluate(
         # forward, give target except ["EOS"]
         out = model(tgt[:,:-1], src, tgt_attn_mask, src_pad_mask, tgt_pad_mask)
     
-        # if i == 0:
-        #     print(tgt_tokenizer.decode(out[0].argmax(dim=-1).tolist()))
+        if i == 0:
+            # log preds for first batch
+            out_ar = _greedy_decode(model, src, tgt.shape[1]+15, src_tokenizer, tgt_tokenizer, device)
+            text_source = src_tokenizer.decode_batch(src.tolist())
+            text_true   = tgt_tokenizer.decode_batch(tgt.tolist())
+            text_non_ar = tgt_tokenizer.decode_batch(out.argmax(dim=-1).tolist())
+            text_ar     = tgt_tokenizer.decode_batch(out_ar.tolist())
+
+            columns = ["Source", "True Target", "Predict (non-AR)", "Predict (AR)"]
+            data = [(text_source[j], text_true[j], text_non_ar[j], text_ar[j]) for j in range(bs)]
+            
+            table =  wandb.Table(data=data, columns=columns)
 
         # compare to target except ["BOS"]
         out = out.reshape(bs * (tgt_len-1), tgt_vocab_size)
@@ -119,7 +131,7 @@ def evaluate(
         total_loss += loss.cpu().item() * bs
         total_size += bs
 
-    return total_loss / total_size
+    return total_loss / total_size, table
 
 
 def train_model(data_dir, tokenizer_path, num_epochs, enable_wandb):
@@ -212,11 +224,12 @@ def train_model(data_dir, tokenizer_path, num_epochs, enable_wandb):
 
     for epoch in trange(1, num_epochs + 1):
         train_loss = train_epoch(model, train_dataloader, CELoss, optimizer, scheduler, device, src_tokenizer, tgt_tokenizer, logger)
-        val_loss = evaluate(model, val_dataloader, CELoss, device, src_tokenizer, tgt_tokenizer, logger)
+        val_loss, table = evaluate(model, val_dataloader, CELoss, device, src_tokenizer, tgt_tokenizer, logger)
         if logger is not None:
             logger.log({
                 "epoch" : epoch,
-                "val_loss" : val_loss
+                "val_loss" : val_loss,
+                "first batch translation" : table
             })
 
         # might be useful to translate some sentences from validation to check your decoding implementation
@@ -258,7 +271,8 @@ def translate_test_set(model: TranslationModel, data_dir, tokenizer_path):
             # translate with greedy search
             greed_out = translate(model, src_sentences, src_tokenizer, tgt_tokenizer, "greedy", device)
             for line in greed_out:
-                output_file.write(line)
+                greedy_translations.append(line)
+                output_file.write(line+'\n')
 
     beam_translations = []
     with open(data_dir / "test.de.txt") as input_file, open(
