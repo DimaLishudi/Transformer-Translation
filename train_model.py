@@ -139,8 +139,8 @@ def train_model(data_dir, tokenizer_path, num_epochs, enable_wandb):
         "batch_size" : 32,
         "lr" : 3e-4,
         "max_len" : 128,  # might be enough at first
-        "num_encoder_layers" : 2, # 3?
-        "num_decoder_layers" : 2, # 3?
+        "num_encoder_layers" : 3, # 2?
+        "num_decoder_layers" : 3, # 2?
         "emb_size" : 256,
         "dim_feedforward" : 512,
         "n_head" : 8,
@@ -232,7 +232,12 @@ def train_model(data_dir, tokenizer_path, num_epochs, enable_wandb):
                 "first batch translation" : table
             })
 
-        # might be useful to translate some sentences from validation to check your decoding implementation
+        # save last checkpoint
+        torch.save({
+                "model_state_dict" : model.state_dict(),
+                "optimizer" : optimizer,
+                "scheduler" : scheduler
+            }, "checkpoint_last.pth")
 
         # also, save the best checkpoint somewhere around here
         if val_loss < min_val_loss:
@@ -243,12 +248,6 @@ def train_model(data_dir, tokenizer_path, num_epochs, enable_wandb):
                     "scheduler" : scheduler
                 }, "checkpoint_best.pth")
             min_val_loss = val_loss
-
-        torch.save({
-                "model_state_dict" : model.state_dict(),
-                "optimizer" : optimizer,
-                "scheduler" : scheduler
-            }, "checkpoint_last.pth")
 
     # load the best checkpoint
     model.load_state_dict(torch.load("checkpoint_best.pth"))
