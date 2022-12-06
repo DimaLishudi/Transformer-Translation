@@ -57,13 +57,14 @@ def _greedy_decode(
 
     for i in range(1, max_len):
         tgt_mask = get_attn_mask(i).to(device)
-        new_tokens = model.decode_last(encoded_src, res_tensor[not_finished_inds,:i], tgt_mask).argmax(dim=-1)
+        new_tokens = model.decode_last(encoded_src[not_finished_inds], res_tensor[not_finished_inds,:i], tgt_mask).argmax(dim=-1)
 
         # update indices of not finished
 
         end_mask = new_tokens != eos_id
         res_tensor[not_finished_inds,i] = new_tokens[not_finished_inds]
         not_finished_inds[not_finished_inds.clone()] = end_mask.cpu()
+        not_finished_inds = torch.ones(bs, dtype=torch.bool)
 
         if sum(not_finished_inds).item() == 0:
             break 
