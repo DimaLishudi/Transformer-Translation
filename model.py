@@ -123,11 +123,4 @@ class TranslationModel(nn.Module):
             tgt_mask=tgt_mask,
             memory_key_padding_mask=src_padding_mask
         )
-        print('-'*50)
-        print(encoded_src.shape)
-        print(tgt_tokens.shape)
-        print(tgt_mask.shape)
-        print(decoded.shape)
-        print(self.linear(decoded[:,-1]).shape)
-        print('-'*50)
         return self.linear(decoded[:,-1])
