@@ -114,11 +114,20 @@ class TranslationModel(nn.Module):
         self,
         encoded_src: Tensor,
         tgt_tokens: Tensor,
-        tgt_mask: Tensor = None,
+        tgt_mask: Tensor,
+        src_padding_mask: Tensor
     ):
         decoded = self.transformer.decoder(
             tgt=self.pe(self.tgt_embed(tgt_tokens)),
             memory=encoded_src,
             tgt_mask=tgt_mask,
+            memory_key_padding_mask=src_padding_mask
         )
+        print('-'*50)
+        print(encoded_src.shape)
+        print(tgt_tokens.shape)
+        print(tgt_mask.shape)
+        print(decoded.shape)
+        print(self.linear(decoded[:,-1]).shape)
+        print('-'*50)
         return self.linear(decoded[:,-1])

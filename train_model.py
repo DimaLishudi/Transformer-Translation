@@ -10,6 +10,8 @@ from data import TranslationDataset
 from decoding import translate, get_attn_mask, _greedy_decode
 from model import TranslationModel
 
+from itertools import islice
+
 import wandb
 
 def train_epoch(
@@ -255,24 +257,28 @@ def train_model(data_dir, tokenizer_path, num_epochs, enable_wandb):
     return model
 
 
-def translate_test_set(model: TranslationModel, data_dir, tokenizer_path):
+# чтение строк из файла по батчам украл отсюда
+# https://stackoverflow.com/questions/39549426/read-multiple-lines-from-a-file-batch-by-batch
+def translate_test_set(model: TranslationModel, data_dir, tokenizer_path, batch_size=1):
     model.eval()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     src_tokenizer = Tokenizer.from_file(str(tokenizer_path / "tokenizer_de.json"))
     tgt_tokenizer = Tokenizer.from_file(str(tokenizer_path / "tokenizer_en.json"))
+    i = 0
 
     greedy_translations = []
     with open(data_dir / "test.de.txt") as input_file, open(
         "answers_greedy.txt", "w+"
     ) as output_file:
-        for line in input_file:
-            src_sentences = [line] # [next(input_file) for _ in range(batch_size)]
-            # translate with greedy search
+        for src_sentences in iter(lambda: tuple(islice(input_file, batch_size)), ()):
             greed_out = translate(model, src_sentences, src_tokenizer, tgt_tokenizer, "greedy", device)
             for line in greed_out:
                 greedy_translations.append(line)
                 output_file.write(line+'\n')
+            i += 1
+            if i > 1:
+                break
 
     beam_translations = []
     with open(data_dir / "test.de.txt") as input_file, open(

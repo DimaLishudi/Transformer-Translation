@@ -14,6 +14,7 @@ def get_attn_mask(L):
     res = torch.zeros(L, L).masked_fill(inf_mask, -float("inf"))
     return res
 
+
 def _greedy_decode(
     model: TranslationModel,
     src: torch.Tensor,
@@ -42,8 +43,9 @@ def _greedy_decode(
     bos_id = tgt_tokenizer.token_to_id("[BOS]")
     eos_id = tgt_tokenizer.token_to_id("[EOS]")
     bs = src.shape[0]
+
     # indices of sequences in batch, which are not fully translated yet
-    not_finished_inds = torch.ones(bs, dtype=torch.bool)
+    not_finished_inds = torch.ones(bs, dtype=torch.bool).to(device)
 
     src_mask = (src == src_pad_id)
 
@@ -51,21 +53,30 @@ def _greedy_decode(
 
     res_tensor = torch.ones(bs, max_len, dtype=torch.long) * pad_id
     res_tensor[:,0] = bos_id * torch.ones(bs)
-    res_tensor[:,-1] = eos_id * torch.ones(bs)
+    # res_tensor[:,-1] = eos_id * torch.ones(bs)
 
     res_tensor = res_tensor.to(device)
 
     for i in range(1, max_len):
         tgt_mask = get_attn_mask(i).to(device)
-        new_tokens = model.decode_last(encoded_src[not_finished_inds], res_tensor[not_finished_inds,:i], tgt_mask).argmax(dim=-1)
+        new_tokens = model.decode_last(
+                encoded_src[not_finished_inds],
+                res_tensor[not_finished_inds,:i],
+                tgt_mask,
+                src_mask[not_finished_inds]
+        ).argmax(dim=-1)
 
         # update indices of not finished
 
         end_mask = new_tokens != eos_id
+        # print(end_mask)
         res_tensor[not_finished_inds,i] = new_tokens
-        not_finished_inds[not_finished_inds.clone()] = end_mask.cpu()
+        not_finished_inds[not_finished_inds.clone()] = end_mask
+        # print(not_finished_inds)
+        # print('-'*50)
 
         if sum(not_finished_inds).item() == 0:
+            # print(i)
             break 
     
     return res_tensor
@@ -75,6 +86,7 @@ def _beam_search_decode(
     model: TranslationModel,
     src: torch.Tensor,
     max_len: int,
+    src_tokenizer: Tokenizer,
     tgt_tokenizer: Tokenizer,
     device: torch.device,
     beam_size: int,
@@ -90,7 +102,66 @@ def _beam_search_decode(
     :param beam_size: the number of hypotheses
     :return: a (batch, time) tensor with predictions
     """
-    pass
+    src.to(device)
+    model.to(device)
+    model.eval()
+
+    src_pad_id = src_tokenizer.token_to_id("[PAD]")
+    pad_id = tgt_tokenizer.token_to_id("[PAD]")
+    bos_id = tgt_tokenizer.token_to_id("[BOS]")
+    eos_id = tgt_tokenizer.token_to_id("[EOS]")
+    bs = src.shape[0]
+    # indices of sequences in batch, which are not fully translated yet
+    not_finished_inds = torch.ones(bs, beam_size, dtype=torch.bool)
+
+    src_mask = (src == src_pad_id)
+
+    encoded_src = model.encode(src, src_mask)
+
+    res_tensor = torch.ones(bs*beam_size, max_len, dtype=torch.long) * pad_id
+    res_tensor[:,0] = bos_id * torch.ones(bs)
+    res_tensor[:,-1] = eos_id * torch.ones(bs)
+    beam_probs = torch.zeros(bs, beam_size)  # log probabilities of beams
+
+    # repeat source encoding beam_size times
+    encoded_src = encoded_src.unsqueeze(dim=1).expand(res_tensor.shape).view(bs*beam_size, -1)
+
+    res_tensor = res_tensor.to(device)
+    beam_probs = beam_probs.to(device)
+
+    for i in range(1, max_len):
+        tgt_mask = get_attn_mask(i).to(device)
+
+        # logits of model
+        model_out = model.decode_last(encoded_src[not_finished_inds], res_tensor[not_finished_inds,:i], tgt_mask)
+
+        # logits, tokens: torch.Tensor not_finished_inds.sum() x beam_size (proposed continuations)
+        logits, tokens = model_out.topk(k=beam_size, dim=-1)
+        probs = beam_probs[not_finished_inds] + torch.log_softmax(logits)
+        
+        not_finished_proposals = res_tensor[not_finished_inds, :i] + tokens.view(1, -1)
+
+        # add finished sequences (for each add beam_size-1 zero probability sequencies for padding)
+        proposals = torch.ones(bs*beam_size, beam_size, i+1, dtype=torch.long) * eos_id
+        proposals[not_finished_inds]
+
+
+        # probs = probs.view(bs, beam_size, beam_size)
+        # tokens = tokens.view(bs, beam_size, beam_size)
+
+        # each beam has beam_size possible continuations
+        proposals = res_tensor[not_finished_inds,:i]
+
+        # update indices of not finished
+
+        end_mask = new_tokens != eos_id
+        res_tensor[not_finished_inds,i] = new_tokens
+        not_finished_inds[not_finished_inds.clone()] = end_mask.cpu()
+
+        if sum(not_finished_inds).item() == 0:
+            break 
+    
+    return res_tensor
 
 
 @torch.inference_mode()
@@ -137,11 +208,12 @@ def translate(
         raise NotImplementedError()
     
     # decoding translation ====================================================
-
+    
     decoded_res = tgt_tokenizer.decode_batch(res.tolist())
+    # print(*decoded_res, sep='\n')
 
     normalized_res = []
     for line in decoded_res:
-        normalized_res.append(detok.detokenize(line.split()))
+        normalized_res.append(detok.detokenize(line.split()).replace(" '", "'").replace("' ", "'"))
 
     return normalized_res
